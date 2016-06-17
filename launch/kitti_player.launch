@@ -1,0 +1,19 @@
+<launch>
+
+  <!-- kitti_player publish the velodyne data to topic "/kitti_player/hdl64e", we need to remap it to topic "/velodyne_points" -->
+  <!-- such that the LOAM package can linked to topic "/kitti_player/hdl64e" (LOAM get 3d data from topic "/velodyne_points")-->
+  <!-- <remap from="/velodyne_points" to="/velodyne_points" /> -->
+  <!-- <remap from="velodyne_points" to="kitti_player/velodyne_points"/> -->
+
+  <!-- Run the function to load the kitti dataset -->
+  <!-- args="..." specify the parsing arguments (same as using terminal) -->
+  <!-- Terminal command: rosrun kitti_player kitti_player_velo -d /home/cansen/kittiOdometry/dataset/sequence -->
+  <node name="kitti_player_velo" pkg="kitti_player" type="kitti_player_velo" args="-d /home/cansen/kittiOdometry/dataset/sequence" />
+
+  <!-- Launch LOAM_Velodyne package -->
+  <include file="$(find loam_velodyne)/launch/loam_velodyne.launch"/>
+</launch>
+
+
+
+

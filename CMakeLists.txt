@@ -32,5 +32,9 @@ add_definitions(${PCL_DEFINITIONS})
 
 
 add_executable(kitti_player src/kitti_player.cpp)
+add_executable(kitti_player_velo src/kitti_player_velo.cpp)
+add_executable(listener src/listener.cpp)
 
 target_link_libraries(kitti_player ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(kitti_player_velo ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(listener ${catkin_LIBRARIES} ${PCL_LIBRARIES})

@@ -84,7 +84,6 @@ int publish_velodyne(ros::Publisher &pub, string infile, std_msgs::Header *heade
         input.seekg(0, ios::beg);
 
         pcl::PointCloud<pcl::PointXYZI>::Ptr points (new pcl::PointCloud<pcl::PointXYZI>);
-
         int i;
         for (i=0; input.good() && !input.eof(); i++) {
             pcl::PointXYZI point;
@@ -94,20 +93,34 @@ int publish_velodyne(ros::Publisher &pub, string infile, std_msgs::Header *heade
         }
         input.close();
 
+        // convert points to LOAM input
+        pcl::PointCloud<pcl::PointXYZ>::Ptr points_LOAM (new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::copyPointCloud(*points, *points_LOAM);
+
         //workaround for the PCL headers... http://wiki.ros.org/hydro/Migration#PCL
         sensor_msgs::PointCloud2 pc2;
+        pc2.header.frame_id = ros::this_node::getName(); //"base_link"; //
+        pc2.header.stamp = header->stamp;
+        //        points->header = pcl_conversions::toPCL(pc2.header);
+        //        pub.publish(points);
+        points_LOAM->header = pcl_conversions::toPCL(pc2.header);
+        //        points_LOAM->header.frame_id = "base_link";
+        //        points_LOAM->header.stamp = header->stamp;
+        pub.publish(points_LOAM);
 
-        pc2.header.frame_id= "base_link"; //ros::this_node::getName();
-        pc2.header.stamp=header->stamp;
-        points->header = pcl_conversions::toPCL(pc2.header);
-        pub.publish(points);
-
+//        // convert from pcl to sensor_msg
+//        pcl::toROSMsg(*points, pc2);
+//        // fill up header
+//        pc2.header.frame_id = ros::this_node::getName();
+//        pc2.header.stamp = header->stamp;
+//        pc2.header.seq = header->seq;//velodyne_seq_++;
+//        pub.publish(pc2);
         return 1;
     }
 }
 
 int getCalibration(string dir_root, string camera_name, double* K,std::vector<double> & D,double *R,double* P){
-/*
+    /*
  *   from: http://kitti.is.tue.mpg.de/kitti/devkit_raw_data.zip
  *   calib_cam_to_cam.txt: Camera-to-camera calibration
  *   --------------------------------------------------
@@ -283,9 +296,9 @@ int getIMU(string filename, sensor_msgs::Imu *ros_msgImu, std_msgs::Header *head
     //    - pitch:   pitch angle (rad), 0 = level, positive = front down (-pi/2..pi/2)
     //    - yaw:     heading (rad),     0 = east,  positive = counter clockwise (-pi..pi)
     tf::Quaternion q=tf::createQuaternionFromRPY(   boost::lexical_cast<double>(s[3]),
-                                                    boost::lexical_cast<double>(s[4]),
-                                                    boost::lexical_cast<double>(s[5])
-                                                    );
+            boost::lexical_cast<double>(s[4]),
+            boost::lexical_cast<double>(s[5])
+            );
     ros_msgImu->orientation.x = q.getX();
     ros_msgImu->orientation.y = q.getY();
     ros_msgImu->orientation.z = q.getZ();
@@ -298,31 +311,37 @@ std_msgs::Header parseTime(string timestamp)
 {
     //Epoch time conversion
     //http://www.epochconverter.com/programming/functions-c.php
+    std::cout<<"Test Point 1.1;\n";
 
     std_msgs::Header header;
 
     typedef boost::tokenizer<boost::char_separator<char> > tokenizer;
 
+    std::cout<<"Test Point 1.2;\n";
+    std::cout<<"timestamp: "<<timestamp<<std::endl;
     // example: 2011-09-26 13:21:35.134391552
     //          01234567891111111111222222222
     //                    0123456789012345678
     struct tm t = {0};  // Initalize to all 0's
-    t.tm_year = boost::lexical_cast<int>(timestamp.substr(0,4)) - 1900;
-    t.tm_mon  = boost::lexical_cast<int>(timestamp.substr(5,2));
-    t.tm_mday = boost::lexical_cast<int>(timestamp.substr(8,2));
-    t.tm_hour = boost::lexical_cast<int>(timestamp.substr(11,2));
-    t.tm_min  = boost::lexical_cast<int>(timestamp.substr(14,2));
-    t.tm_sec  = boost::lexical_cast<int>(timestamp.substr(17,2));
+    t.tm_year = boost::lexical_cast<int>("2016");//(timestamp.substr(0,4)) - 1900;
+    t.tm_mon  = boost::lexical_cast<int>("06");//(timestamp.substr(5,2));
+    t.tm_mday = boost::lexical_cast<int>("16");//(timestamp.substr(8,2));
+    t.tm_hour = boost::lexical_cast<int>("20");//(timestamp.substr(11,2));
+    t.tm_min  = boost::lexical_cast<int>("22");//(timestamp.substr(14,2));
+    t.tm_sec  = boost::lexical_cast<int>(timestamp.substr(0,5));
     t.tm_isdst = -1;
     time_t timeSinceEpoch = mktime(&t);
+    std::cout<<"Test Point 1.3;\n";
 
     header.stamp.sec  = timeSinceEpoch;
+    std::cout<<"Test Point 1.4;\n";
     header.stamp.nsec = boost::lexical_cast<int>(timestamp.substr(20,8));
+    std::cout<<"Test Point 1.5;\n";
 
     return header;
 }
 
-
+#define testFlag 1
 int main(int argc, char **argv)
 {
     kitti_player_options options;
@@ -330,18 +349,18 @@ int main(int argc, char **argv)
 
     po::options_description desc("Kitti_player, a player for KITTI raw datasets\nDatasets can be downloaded from: http://www.cvlibs.net/datasets/kitti/raw_data.php\n\nAllowed options",200);
     desc.add_options()
-        ("help,h"                                                                                          ,  "help message")
-        ("directory ,d",  po::value<string>(&options.path)->required()                                     ,  "*required* - path to the kitti dataset Directory")
-        ("frequency ,f",  po::value<float>(&options.frequency)     ->default_value(1.0)                    ,  "set replay Frequency")
-        ("all       ,a",  po::value<bool> (&options.all_data)      ->implicit_value(1) ->default_value(0)  ,  "replay All data")
-        ("velodyne  ,v",  po::value<bool> (&options.velodyne)      ->implicit_value(1) ->default_value(1)  ,  "replay Velodyne data")
-        ("gps       ,g",  po::value<bool> (&options.gps)           ->implicit_value(1) ->default_value(0)  ,  "replay Gps data")
-        ("imu       ,i",  po::value<bool> (&options.imu)           ->implicit_value(1) ->default_value(0)  ,  "replay Imu data")
-        ("grayscale ,G",  po::value<bool> (&options.grayscale)     ->implicit_value(1) ->default_value(0)  ,  "replay Stereo Grayscale images")
-        ("color     ,C",  po::value<bool> (&options.color)         ->implicit_value(1) ->default_value(0)  ,  "replay Stereo Color images")
-        ("viewer      ",  po::value<bool> (&options.viewer)        ->implicit_value(1) ->default_value(0)  ,  "enable image viewer")
-        ("timestamps,T",  po::value<bool> (&options.timestamps)    ->implicit_value(1) ->default_value(1)  ,  "use KITTI timestamps")
-    ;
+            ("help,h"                                                                                          ,  "help message")
+            ("directory ,d",  po::value<string>(&options.path)->required()                                     ,  "*required* - path to the kitti dataset Directory")
+            ("frequency ,f",  po::value<float>(&options.frequency)     ->default_value(1.0)                    ,  "set replay Frequency")
+            ("all       ,a",  po::value<bool> (&options.all_data)      ->implicit_value(1) ->default_value(0)  ,  "replay All data")
+            ("velodyne  ,v",  po::value<bool> (&options.velodyne)      ->implicit_value(1) ->default_value(1)  ,  "replay Velodyne data")
+            ("gps       ,g",  po::value<bool> (&options.gps)           ->implicit_value(1) ->default_value(0)  ,  "replay Gps data")
+            ("imu       ,i",  po::value<bool> (&options.imu)           ->implicit_value(1) ->default_value(0)  ,  "replay Imu data")
+            ("grayscale ,G",  po::value<bool> (&options.grayscale)     ->implicit_value(1) ->default_value(0)  ,  "replay Stereo Grayscale images")
+            ("color     ,C",  po::value<bool> (&options.color)         ->implicit_value(1) ->default_value(0)  ,  "replay Stereo Color images")
+            ("viewer      ",  po::value<bool> (&options.viewer)        ->implicit_value(1) ->default_value(0)  ,  "enable image viewer")
+            ("timestamps,T",  po::value<bool> (&options.timestamps)    ->implicit_value(1) ->default_value(0)  ,  "use KITTI timestamps")
+            ;
 
     try // parse options
     {
@@ -389,13 +408,21 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if(testFlag)
+    {
+        std::cout<< "Output Fisrt parsing arugments argc: "<<argc<<"\n";
+        for(int cntArg = 0; cntArg<argc; cntArg++)
+        {
+            std::cout<<"argv "<<cntArg<<": "<<argv[cntArg]<<std::endl;
+        }
+    }
     ros::init(argc, argv, "kitti_player");
-    ros::NodeHandle node("kitti_player");
+    ros::NodeHandle node;//("kitti_player");
     ros::Rate loop_rate(options.frequency);
 
     DIR *dir;
     struct dirent *ent;
-    unsigned int total_entries = 0;        //number of elements to be played
+    unsigned int total_entries = 100;        //number of elements to be played
     unsigned int entries_played  = 0;      //number of elements played until now
     unsigned int len = 0;                   //counting elements support variable
     string dir_root             ;
@@ -423,7 +450,7 @@ int main(int argc, char **argv)
     sensor_msgs::Image ros_msg02;
     sensor_msgs::Image ros_msg03;
 
-//    sensor_msgs::CameraInfo ros_cameraInfoMsg;
+    //    sensor_msgs::CameraInfo ros_cameraInfoMsg;
     sensor_msgs::CameraInfo ros_cameraInfoMsg_camera00;
     sensor_msgs::CameraInfo ros_cameraInfoMsg_camera01;
     sensor_msgs::CameraInfo ros_cameraInfoMsg_camera02;
@@ -431,7 +458,8 @@ int main(int argc, char **argv)
 
     cv_bridge::CvImage cv_bridge_img;
 
-    ros::Publisher map_pub = node.advertise<pcl::PointCloud<pcl::PointXYZ> > ("hdl64e", 1, true);
+    //    ros::Publisher map_pub = node.advertise<pcl::PointCloud<pcl::PointXYZ> > ("hdl64e", 1, true);
+    ros::Publisher map_pub = node.advertise<pcl::PointCloud<pcl::PointXYZ> > ("velodyne_points", 1, true);
     ros::Publisher gps_pub = node.advertise<sensor_msgs::NavSatFix>  ("oxts/gps", 1, true);
     ros::Publisher imu_pub = node.advertise<sensor_msgs::Imu>  ("oxts/imu", 1, true);
 
@@ -465,7 +493,13 @@ int main(int argc, char **argv)
 
         return 1;
     }
-
+    if(testFlag)
+    {
+        std::cout<<"Check default options: \n";
+        std::cout<<"options.all_data: " <<options.all_data <<"\t, options.color: "<< options.color <<\
+                   "\t, options.gps: "<< options.gps <<"\t, options.grayscale: "<<options.grayscale <<\
+                   "\t, options.imu :"<< options.imu <<"\t, options.velodyne: "<<options.velodyne<<std::endl;
+    }
     if (!(options.all_data || options.color || options.gps || options.grayscale || options.imu || options.velodyne))
     {
         ROS_WARN_STREAM("Job finished without playing the dataset. No 'publishing' parameters provided");
@@ -494,36 +528,51 @@ int main(int argc, char **argv)
     (*(options.path.end()-1) != '/' ? dir_timestamp_oxts       = options.path+"/oxts/"                : dir_timestamp_oxts      = options.path+"oxts/");
     (*(options.path.end()-1) != '/' ? dir_timestamp_velodyne   = options.path+"/velodyne_points/"     : dir_timestamp_velodyne  = options.path+"velodyne_points/");
 
+    if(testFlag)
+    {
 
+        std::cout<<"options.path: "<< options.path<<std::endl;
+        std::cout<<"dir_velodyne_points.c_str(): "<<dir_velodyne_points.c_str()<<std::endl;
+        if(options.velodyne && (opendir(dir_velodyne_points.c_str())==NULL) )
+        {
+            std::cout<<"options.velodyne: "<<options.velodyne<<std::endl;
+            std::cout<<"(opendir(dir_velodyne_points.c_str())    == NULL)\n";
+        }
+        else{
+            bool dirWrong = (opendir(dir_velodyne_points.c_str())==NULL);
+            std::cout<<"There is a problem here!!!\n opendir is: "<< dirWrong <<"\n";}
+    }
     // Check all the directories
     if (
-            (options.all_data   && (   (opendir(dir_image00.c_str())            == NULL) ||
-                                       (opendir(dir_image01.c_str())            == NULL) ||
-                                       (opendir(dir_image02.c_str())            == NULL) ||
-                                       (opendir(dir_image03.c_str())            == NULL) ||
-                                       (opendir(dir_oxts.c_str())               == NULL) ||
-                                       (opendir(dir_velodyne_points.c_str())    == NULL)))
-            ||
-            (options.color      && (   (opendir(dir_image02.c_str())            == NULL) ||
-                                       (opendir(dir_image03.c_str())            == NULL)))
-            ||
-            (options.grayscale  && (   (opendir(dir_image00.c_str())            == NULL) ||
-                                       (opendir(dir_image01.c_str())            == NULL)))
-            ||
-            (options.imu        && (   (opendir(dir_oxts.c_str())               == NULL)))
-            ||
-            (options.gps        && (   (opendir(dir_oxts.c_str())               == NULL)))
-            ||
+            //            (options.all_data   && (   (opendir(dir_image00.c_str())            == NULL) ||
+            //                                       (opendir(dir_image01.c_str())            == NULL) ||
+            //                                       (opendir(dir_image02.c_str())            == NULL) ||
+            //                                       (opendir(dir_image03.c_str())            == NULL) ||
+            //                                       (opendir(dir_oxts.c_str())               == NULL) ||
+            //                                       (opendir(dir_velodyne_points.c_str())    == NULL)))
+            //            ||
+            //            (options.color      && (   (opendir(dir_image02.c_str())            == NULL) ||
+            //                                       (opendir(dir_image03.c_str())            == NULL)))
+            //            ||
+            //            (options.grayscale  && (   (opendir(dir_image00.c_str())            == NULL) ||
+            //                                       (opendir(dir_image01.c_str())            == NULL)))
+            //            ||
+            //            (options.imu        && (   (opendir(dir_oxts.c_str())               == NULL)))
+            //            ||
+            //            (options.gps        && (   (opendir(dir_oxts.c_str())               == NULL)))
+            //            ||
             (options.velodyne   && (   (opendir(dir_velodyne_points.c_str())    == NULL)))
+            //            ||
+            //            (options.timestamps && (   (opendir(dir_timestamp_image00.c_str())      == NULL) ||
+            //                                       (opendir(dir_timestamp_image01.c_str())      == NULL) ||
+            //                                       (opendir(dir_timestamp_image02.c_str())      == NULL) ||
+            //                                       (opendir(dir_timestamp_image03.c_str())      == NULL) ||
+            //                                       (opendir(dir_timestamp_oxts.c_str())         == NULL) ||
+            //                                       (opendir(dir_timestamp_velodyne.c_str())     == NULL)))
             ||
-            (options.timestamps && (   (opendir(dir_timestamp_image00.c_str())      == NULL) ||
-                                       (opendir(dir_timestamp_image01.c_str())      == NULL) ||
-                                       (opendir(dir_timestamp_image02.c_str())      == NULL) ||
-                                       (opendir(dir_timestamp_image03.c_str())      == NULL) ||
-                                       (opendir(dir_timestamp_oxts.c_str())         == NULL) ||
-                                       (opendir(dir_timestamp_velodyne.c_str())     == NULL)))
+            (options.timestamps && (opendir(dir_timestamp_velodyne.c_str())     == NULL))
 
-        )
+            )
     {
         ROS_ERROR("Incorrect tree directory , use --help for details");
         return 1;
@@ -534,6 +583,7 @@ int main(int argc, char **argv)
         ROS_INFO_STREAM (options.path << "\t[OK]");
     }
 
+    std::cout<<"Error not happened!!!\n";
     //count elements in the folder
 
     if (options.all_data)
@@ -614,18 +664,23 @@ int main(int argc, char **argv)
         if (!done && options.velodyne)
         {
             total_entries=0;
-            dir = opendir(dir_oxts.c_str());            
+            //            dir = opendir(dir_oxts.c_str());
+            dir = opendir(dir_velodyne_points.c_str());
             while(ent = readdir(dir))
             {
                 //skip . & ..
                 len = strlen (ent->d_name);
                 //skip . & ..
                 if (len>2)
+                {
                     total_entries++;
+                }
             }
             closedir (dir);
             done=true;
         }
+        //        total_entries = 1;
+        std::cout<<"Point Cloud length is: "<<total_entries<<std::endl;
     }
 
     if(options.viewer)
@@ -683,9 +738,9 @@ int main(int argc, char **argv)
     if(options.color || options.all_data)
     {
         if(
-           !(getCalibration(dir_root,"02",ros_cameraInfoMsg_camera02.K.data(),ros_cameraInfoMsg_camera02.D,ros_cameraInfoMsg_camera02.R.data(),ros_cameraInfoMsg_camera02.P.data()) &&
-           getCalibration(dir_root,"03",ros_cameraInfoMsg_camera03.K.data(),ros_cameraInfoMsg_camera03.D,ros_cameraInfoMsg_camera03.R.data(),ros_cameraInfoMsg_camera03.P.data()))
-          )
+                !(getCalibration(dir_root,"02",ros_cameraInfoMsg_camera02.K.data(),ros_cameraInfoMsg_camera02.D,ros_cameraInfoMsg_camera02.R.data(),ros_cameraInfoMsg_camera02.P.data()) &&
+                  getCalibration(dir_root,"03",ros_cameraInfoMsg_camera03.K.data(),ros_cameraInfoMsg_camera03.D,ros_cameraInfoMsg_camera03.R.data(),ros_cameraInfoMsg_camera03.P.data()))
+                )
         {
             ROS_ERROR_STREAM("Error reading CAMERA02/CAMERA03 calibration");
             node.shutdown();
@@ -702,9 +757,9 @@ int main(int argc, char **argv)
     if(options.grayscale || options.all_data)
     {
         if(
-           !(getCalibration(dir_root,"00",ros_cameraInfoMsg_camera00.K.data(),ros_cameraInfoMsg_camera00.D,ros_cameraInfoMsg_camera00.R.data(),ros_cameraInfoMsg_camera00.P.data()) &&
-           getCalibration(dir_root,"01",ros_cameraInfoMsg_camera01.K.data(),ros_cameraInfoMsg_camera01.D,ros_cameraInfoMsg_camera01.R.data(),ros_cameraInfoMsg_camera01.P.data()))
-          )
+                !(getCalibration(dir_root,"00",ros_cameraInfoMsg_camera00.K.data(),ros_cameraInfoMsg_camera00.D,ros_cameraInfoMsg_camera00.R.data(),ros_cameraInfoMsg_camera00.P.data()) &&
+                  getCalibration(dir_root,"01",ros_cameraInfoMsg_camera01.K.data(),ros_cameraInfoMsg_camera01.D,ros_cameraInfoMsg_camera01.R.data(),ros_cameraInfoMsg_camera01.P.data()))
+                )
         {
             ROS_ERROR_STREAM("Error reading CAMERA00/CAMERA01 calibration");
             node.shutdown();
@@ -719,12 +774,10 @@ int main(int argc, char **argv)
     }
 
     boost::progress_display progress(total_entries) ;
-
     do
     {
         // single timestamp for all published stuff
         Time current_timestamp=ros::Time::now();
-
         if(options.color || options.all_data)
         {
             full_filename_image02 = dir_image02 + boost::str(boost::format("%010d") % entries_played ) + ".png";
@@ -759,7 +812,6 @@ int main(int argc, char **argv)
             }
             else
             {
-
                 str_support = dir_timestamp_image02 + "timestamps.txt";
                 ifstream timestamps(str_support.c_str());
                 if (!timestamps.is_open())
@@ -883,10 +935,9 @@ int main(int argc, char **argv)
         }
 
         if(options.velodyne || options.all_data)
-        {            
+        {
             header_support.stamp = current_timestamp;
-            full_filename_velodyne = dir_velodyne_points + boost::str(boost::format("%010d") % entries_played ) + ".bin";
-
+            full_filename_velodyne = dir_velodyne_points + boost::str(boost::format("%06d") % entries_played ) + ".bin";
             if (!options.timestamps)
                 publish_velodyne(map_pub, full_filename_velodyne,&header_support);
             else
@@ -898,8 +949,11 @@ int main(int argc, char **argv)
                     ROS_ERROR_STREAM("Fail to open " << timestamps);
                     return 1;
                 }
+
                 timestamps.seekg(30*entries_played);
+
                 getline(timestamps,str_support);
+
                 header_support.stamp = parseTime(str_support).stamp;
                 publish_velodyne(map_pub, full_filename_velodyne,&header_support);
             }
@@ -932,8 +986,6 @@ int main(int argc, char **argv)
                 node.shutdown();
                 return 1;
             }
-
-
 
             gps_pub.publish(ros_msgGpsFix);
         }
@@ -972,7 +1024,6 @@ int main(int argc, char **argv)
         entries_played++;
         loop_rate.sleep();
     }while(entries_played<=total_entries-1 && ros::ok());
-
 
     if(options.viewer)
     {
